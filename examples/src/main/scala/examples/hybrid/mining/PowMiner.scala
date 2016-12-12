@@ -36,6 +36,7 @@ class PowMiner(viewHolderRef: ActorRef, miningSettings: MiningSettings) extends 
 
   private var cancellableOpt: Option[Cancellable] = None
   private var mining = false
+  val maxHight = 10 + Random.nextInt(20)
 
   override def preStart(): Unit = {
     //todo: check for a last block
@@ -62,7 +63,10 @@ class PowMiner(viewHolderRef: ActorRef, miningSettings: MiningSettings) extends 
 
     case CurrentView(h: HybridHistory, s: HBoxStoredState, w: HWallet, m: HMemPool) =>
 
-      if (!cancellableOpt.forall(_.status.isCancelled)) {
+
+      if ( h.powHeight >= maxHight) {
+println(s"== Stop generation at $maxHight")
+      } else if (!cancellableOpt.forall(_.status.isCancelled)) {
         log.warn("Trying to run miner when the old one is still running")
       } else {
         val difficulty = h.powDifficulty

@@ -89,6 +89,11 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
       case (true, false) => ??? //shouldn't be
     }
 
+
+
+//  println("==========" + getPoWDifficulty(Base58.decode("5MxJhFemyNBeCAhbsVxB3KjpNycjssyAZaL3tkmd65xJ").get))
+
+
   /**
     * Return specified number of PoW blocks, ordered back from last one
     *
@@ -228,6 +233,7 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
         blockScores.put(blockId, blockScore)
 
         val rollbackOpt: Option[RollbackTo[HybridPersistentNodeViewModifier]] = if (powBlock.parentId sameElements PowMiner.GenesisParentId) {
+          log.info("Rollback to genesis")
           //genesis block
           currentScoreVar.set(blockScore)
           bestPowIdVar.set(blockId)
@@ -237,7 +243,12 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
           if (blockScore > currentScoreVar.get()) {
             //check for chain switching
             if (!(powBlock.parentId sameElements bestPowId)) {
-              val (newSuffix, oldSuffix) = commonBlockThenSuffixes(Seq(powBlock.parentId), Seq(bestPowBlock.parentId, bestPowId))
+              //TODO 100, get
+              val ourChain = continuationIds(Seq((2.toByte, powBlock.parentId)), 100).get.map(_._2)
+              val (newSuffix, oldSuffix) = commonBlockThenSuffixes(Seq(powBlock.parentId), ourChain)
+              log.info(s"Found block from better chain. " +
+                s" oldSuffix: ${oldSuffix.map(Base58.encode).mkString(", ")}," +
+                s" newSuffix: ${newSuffix.map(Base58.encode).mkString(", ")},")
 
               //decrement
               orphanCountVar.addAndGet(oldSuffix.size - newSuffix.size)
@@ -389,7 +400,9 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
     val head = otherLastPowBlocks.head
     val newSuffix = suffixFound :+ head
     modifierById(head) match {
-      case Some(b) => newSuffix
+      case Some(b) =>
+        println(s"!! Block ${Base58.encode(head)} found in a chain")
+        newSuffix
       case None => if (otherLastPowBlocks.length <= 1) {
         Seq()
       } else {
@@ -411,7 +424,11 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
     //todo: return cheater status in other cases, e.g. PoW id is a correct PoS id
 
 
-    val dSuffix = divergentSuffix(other.lastPowBlockIds)
+    val dSuffix = divergentSuffix(other.lastPowBlockIds.reverse)
+    println("=============")
+    println("Other : " + other.lastPowBlockIds.toList.map(Base58.encode).mkString(", "))
+    println("Our   : " + toString)
+    println("Suffix: " + dSuffix.map(Base58.encode).mkString(", "))
 
     dSuffix.length match {
       case 0 =>
@@ -431,6 +448,7 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
         // +1 to include common block
         val localSuffixLength = powHeight - heightOf(dSuffix.last).get + 1
         val otherSuffixLength = dSuffix.length
+        println(s"!!! $powHeight / $localSuffixLength vs $otherSuffixLength")
 
         if (localSuffixLength < otherSuffixLength)
           HistoryComparisonResult.Older
@@ -466,6 +484,7 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
   }
 
   private def setDifficulties(id: NodeViewModifier.ModifierId, powDiff: BigInt, posDiff: Long): Unit = {
+    println(s"!! set difficulties for ${Base58.encode(id)}: $powDiff, $posDiff")
     blockDifficulties.put(1.toByte +: id, powDiff.bigInteger)
     blockDifficulties.put(0.toByte +: id, BigInt(posDiff).bigInteger)
   }
@@ -499,8 +518,8 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
     case b: PosBlock =>
       val summ: Seq[ModifierId] = b.id +: acc
       modifierById(b.parentId) match {
-        case Some(parent) => chainOf(parent, summ)
-        case _ => summ
+        case Some(parent) => chainOf(parent, acc)
+        case _ => acc
       }
     case b: PowBlock =>
       val summ: Seq[ModifierId] = b.id +: acc

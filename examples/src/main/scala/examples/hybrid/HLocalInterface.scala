@@ -43,6 +43,7 @@ class HLocalInterface(override val viewHolderRef: ActorRef,
   }
 
   override protected def onNoBetterNeighbour(): Unit = {
+    log.info("No more better neighbours")
     powMinerRef ! StartMining
     posForgerRef ! StartForging
     block = false
@@ -50,6 +51,7 @@ class HLocalInterface(override val viewHolderRef: ActorRef,
 
   //todo: check
   override protected def onBetterNeighbourAppeared(): Unit = {
+    log.info("Better neighbour appeared")
     //powMinerRef ! StopMining
     //posForgerRef ! StopForging
     //block = true

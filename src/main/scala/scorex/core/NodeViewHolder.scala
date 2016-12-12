@@ -153,6 +153,7 @@ trait NodeViewHolder[P <: Proposition, TX <: Transaction[P], PMOD <: PersistentN
         case _ =>
           modifierIds.filterNot(mid => history().contains(mid) || modifiersCache.contains(mid))
       }
+      log.info(s"CompareViews ${modifierIds.map(Base58.encode)}")
 
       sender() ! NodeViewSynchronizer.RequestFromLocal(sid, modifierTypeId, ids)
   }

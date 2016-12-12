@@ -151,6 +151,7 @@ class NodeViewSynchronizer[P <: Proposition, TX <: Transaction[P], SI <: SyncInf
   private def processInv: Receive = {
     case DataFromPeer(spec, invData: InvData@unchecked, remote)
       if spec.messageCode == InvSpec.messageCode =>
+      log.info(s"!! INV message with ${invData._2.map(Base58.encode)}")
 
       viewHolderRef ! CompareViews(remote, invData._1, invData._2)
   }
@@ -194,6 +195,7 @@ class NodeViewSynchronizer[P <: Proposition, TX <: Transaction[P], SI <: SyncInf
   //local node sending object ids to remote
   private def requestFromLocal: Receive = {
     case RequestFromLocal(peer, modifierTypeId, modifierIds) =>
+      log.info(s"!! Modifiers ${modifierIds.map(Base58.encode)} required")
 
       if (modifierIds.nonEmpty) {
         val msg = Message(RequestModifierSpec, Right(modifierTypeId -> modifierIds), None)
