@@ -60,6 +60,8 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
 
   //for now score = chain length; that's not very secure, see link above
   private lazy val currentScoreVar = metaDb.atomicLong("score").createOrOpen()
+  require(currentScoreVar.get == 0 || currentScoreVar.get == blockScores.get(bestPowId),
+    s"${currentScoreVar.get} == ${blockScores.get(bestPowId)}")
 
   lazy val powHeight = currentScoreVar.get()
 
@@ -88,11 +90,6 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
       case (false, false) => bestPosBlock.parentId sameElements bestPowId
       case (true, false) => ??? //shouldn't be
     }
-
-
-
-//  println("==========" + getPoWDifficulty(Base58.decode("5MxJhFemyNBeCAhbsVxB3KjpNycjssyAZaL3tkmd65xJ").get))
-
 
   /**
     * Return specified number of PoW blocks, ordered back from last one
@@ -317,7 +314,7 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
         (new HybridHistory(blocksStorage, metaDb, logDirOpt), None) //no rollback ever
     }
     metaDb.commit()
-    log.info(s"History: block appended, new score is ${currentScoreVar.get()}")
+    log.info(s"History: block ${block} appended, new score is ${currentScoreVar.get()}")
     res
   }
 
@@ -401,7 +398,6 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
     val newSuffix = suffixFound :+ head
     modifierById(head) match {
       case Some(b) =>
-        println(s"!! Block ${Base58.encode(head)} found in a chain")
         newSuffix
       case None => if (otherLastPowBlocks.length <= 1) {
         Seq()
@@ -425,10 +421,6 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
 
 
     val dSuffix = divergentSuffix(other.lastPowBlockIds.reverse)
-    println("=============")
-    println("Other : " + other.lastPowBlockIds.toList.map(Base58.encode).mkString(", "))
-    println("Our   : " + toString)
-    println("Suffix: " + dSuffix.map(Base58.encode).mkString(", "))
 
     dSuffix.length match {
       case 0 =>
@@ -448,7 +440,6 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
         // +1 to include common block
         val localSuffixLength = powHeight - heightOf(dSuffix.last).get + 1
         val otherSuffixLength = dSuffix.length
-        println(s"!!! $powHeight / $localSuffixLength vs $otherSuffixLength")
 
         if (localSuffixLength < otherSuffixLength)
           HistoryComparisonResult.Older
@@ -484,7 +475,6 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
   }
 
   private def setDifficulties(id: NodeViewModifier.ModifierId, powDiff: BigInt, posDiff: Long): Unit = {
-    println(s"!! set difficulties for ${Base58.encode(id)}: $powDiff, $posDiff")
     blockDifficulties.put(1.toByte +: id, powDiff.bigInteger)
     blockDifficulties.put(0.toByte +: id, BigInt(posDiff).bigInteger)
   }
@@ -533,6 +523,7 @@ class HybridHistory(blocksStorage: LSMStore, metaDb: DB, logDirOpt: Option[Strin
 
 
 object HybridHistory extends ScorexLogging {
+  //TODO move to config
   val DifficultyRecalcPeriod = 20
 
   def readOrGenerate(settings: Settings): HybridHistory = {

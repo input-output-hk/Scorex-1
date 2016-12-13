@@ -36,7 +36,6 @@ class PowMiner(viewHolderRef: ActorRef, miningSettings: MiningSettings) extends 
 
   private var cancellableOpt: Option[Cancellable] = None
   private var mining = false
-  val maxHight = 10 + Random.nextInt(20)
 
   override def preStart(): Unit = {
     //todo: check for a last block
@@ -63,10 +62,7 @@ class PowMiner(viewHolderRef: ActorRef, miningSettings: MiningSettings) extends 
 
     case CurrentView(h: HybridHistory, s: HBoxStoredState, w: HWallet, m: HMemPool) =>
 
-
-      if ( h.powHeight >= maxHight) {
-println(s"== Stop generation at $maxHight")
-      } else if (!cancellableOpt.forall(_.status.isCancelled)) {
+      if (!cancellableOpt.forall(_.status.isCancelled)) {
         log.warn("Trying to run miner when the old one is still running")
       } else {
         val difficulty = h.powDifficulty
@@ -105,7 +101,7 @@ println(s"== Stop generation at $maxHight")
 
 
     case b: PowBlock =>
-      println(s"locally generated PoW block: $b")
+      log.debug(s"locally generated PoW block: $b")
       cancellableOpt.foreach(_.cancel())
       viewHolderRef ! LocallyGeneratedModifier[PublicKey25519Proposition, SimpleBoxTransaction, HybridPersistentNodeViewModifier](b)
 
@@ -118,12 +114,13 @@ println(s"== Stop generation at $maxHight")
 }
 
 object PowMiner extends App {
+  //todo move settings to config
   lazy val HashesPerSecond = 20
 
   lazy val BlockDelay = 8.seconds.toMillis
 
   lazy val MaxTarget = BigInt(1, Array.fill(32)(Byte.MinValue))
-  lazy val Difficulty = BigInt("50")
+  lazy val Difficulty = BigInt("1")
 
   lazy val GenesisParentId = Array.fill(32)(1: Byte)
 

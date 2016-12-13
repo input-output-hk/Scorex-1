@@ -129,6 +129,7 @@ class NodeViewSynchronizer[P <: Proposition, TX <: Transaction[P], SI <: SyncInf
           val ext = extOpt.get
           ext.groupBy(_._1).mapValues(_.map(_._2)).foreach {
             case (mid, mods) =>
+              log.debug(s"Send inv to younger node: ${mods.map(Base58.encode)}")
               networkControllerRef ! SendToNetwork(Message(InvSpec, Right(mid -> mods), None), SendToPeer(remote))
           }
 
