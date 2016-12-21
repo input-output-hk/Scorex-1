@@ -26,6 +26,7 @@ import scala.reflect.runtime.universe.TypeTag
   */
 class NetworkController(settings: Settings,
                         messageHandler: MessageHandler,
+                        authHandshaker: AuthHandshaker,
                         upnp: UPnP,
                         peerManagerRef: ActorRef
                        ) extends Actor with ScorexLogging {
@@ -39,6 +40,8 @@ class NetworkController(settings: Settings,
   private implicit val timeout = Timeout(5.seconds)
 
   private val messageHandlers = mutable.Map[Seq[Message.MessageCode], ActorRef]()
+
+  private var requestedConnections: Set[InetSocketAddress] = Set.empty
 
   //check own declared address for validity
   if (!settings.localOnly) {
@@ -124,21 +127,28 @@ class NetworkController(settings: Settings,
 
   def peerLogic: Receive = {
     case ConnectTo(remote) =>
+      requestedConnections += remote
       log.info(s"Connecting to: $remote")
       IO(Tcp) ! Connect(remote, localAddress = None, timeout = connTimeout, pullMode = true)
 
     case c@Connected(remote, local) =>
+
+      val initiator = requestedConnections.contains(remote)
+      requestedConnections -= remote
+
       val connection = sender()
       val props = Props(classOf[PeerConnectionHandler], settings, self, peerManagerRef,
-        messageHandler, connection, externalSocketAddress, remote)
+        messageHandler, connection, externalSocketAddress, remote, initiator, authHandshaker)
       val handler = context.actorOf(props)
       connection ! Register(handler, keepOpenOnPeerClosed = false, useResumeWriting = true)
       val newPeer = ConnectedPeer(remote, handler)
       peerManagerRef ! PeerManager.Connected(newPeer)
+
       newPeer.handlerRef ! PeerConnectionHandler.StartInteraction
 
     case CommandFailed(c: Connect) =>
       log.info("Failed to connect to : " + c.remoteAddress)
+      requestedConnections -= c.remoteAddress
       peerManagerRef ! PeerManager.Disconnected(c.remoteAddress)
   }
 

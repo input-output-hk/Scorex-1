@@ -1,6 +1,6 @@
 package scorex.core.network
 
-import java.net.InetSocketAddress
+import java.net.{URI, InetSocketAddress}
 
 import akka.actor.{Actor, ActorRef, Cancellable, SupervisorStrategy}
 import akka.io.Tcp
@@ -25,17 +25,19 @@ case class ConnectedPeer(socketAddress: InetSocketAddress, handlerRef: ActorRef)
     obj.cast[ConnectedPeer].exists(_.socketAddress.getAddress.getHostAddress == this.socketAddress.getAddress.getHostAddress)
 }
 
-
 case object Ack extends Event
 
-
-case class PeerConnectionHandler(settings: Settings,
-                                 networkControllerRef: ActorRef,
-                                 peerManager: ActorRef,
-                                 messagesHandler: MessageHandler,
-                                 connection: ActorRef,
-                                 ownSocketAddress: Option[InetSocketAddress],
-                                 remote: InetSocketAddress) extends Actor with Buffering with ScorexLogging {
+case class PeerConnectionHandler(
+    settings: Settings,
+    networkControllerRef: ActorRef,
+    peerManager: ActorRef,
+    messagesHandler: MessageHandler,
+    connection: ActorRef,
+    ownSocketAddress: Option[InetSocketAddress],
+    remote: InetSocketAddress,
+    initiator: Boolean,
+    initialAuthHandshaker: AuthHandshaker)
+  extends Actor with Buffering with ScorexLogging {
 
   import PeerConnectionHandler._
 
@@ -76,6 +78,33 @@ case class PeerConnectionHandler(settings: Settings,
   private var handshakeTimeoutCancellableOpt: Option[Cancellable] = None
 
   private object HandshakeDone
+
+  private def authHandshake(handshaker: AuthHandshaker): Receive = {
+    case StartInteraction =>
+      if (initiator) {
+        val (data, newHandshaker) = handshaker.initiate(???) // TODO: pass URI
+        connection ! Write(data)
+        context become authHandshake(newHandshaker)
+      }
+
+    case Received(data) =>
+      val result = if (initiator) {
+        handshaker.handleResponseMessage(data)
+      } else {
+        val (msg, r) = handshaker.handleInitialMessage(data)
+        connection ! Write(msg)
+        r
+      }
+
+      result match {
+        case AuthHandshakeSuccess(secrets) =>
+          log.info("Handshake success, secrets={}", secrets)
+          context.become(workingCycle) // workingCycle(secrets)
+        case AuthHandshakeError =>
+          log.error("Handshake error")
+          context.stop(self)
+      }
+  }
 
   private def handshake: Receive = ({
     case StartInteraction =>
@@ -176,7 +205,7 @@ case class PeerConnectionHandler(settings: Settings,
         log.warn(s"Strange input for PeerConnectionHandler: $nonsense")
     }: Receive)
 
-  override def receive: Receive = handshake
+  override def receive: Receive = authHandshake(initialAuthHandshaker)
 }
 
 object PeerConnectionHandler {
