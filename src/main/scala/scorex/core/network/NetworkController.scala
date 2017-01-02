@@ -41,7 +41,7 @@ class NetworkController(settings: Settings,
 
   private val messageHandlers = mutable.Map[Seq[Message.MessageCode], ActorRef]()
 
-  private var requestedConnections: Set[InetSocketAddress] = Set.empty
+  private var requestedUriConnections: Map[InetSocketAddress, URI] = Map.empty
 
   //check own declared address for validity
   if (!settings.localOnly) {
@@ -126,19 +126,19 @@ class NetworkController(settings: Settings,
   }
 
   def peerLogic: Receive = {
-    case ConnectTo(remote) =>
-      requestedConnections += remote
-      log.info(s"Connecting to: $remote")
-      IO(Tcp) ! Connect(remote, localAddress = None, timeout = connTimeout, pullMode = true)
+    case ConnectTo(address, uriOpt) =>
+      log.info(s"Connecting to: $address")
+      uriOpt.foreach { uri => requestedUriConnections += (address -> uri) }
+      IO(Tcp) ! Connect(address, localAddress = None, timeout = connTimeout, pullMode = true)
 
     case c@Connected(remote, local) =>
 
-      val initiator = requestedConnections.contains(remote)
-      requestedConnections -= remote
+      val uriOpt = requestedUriConnections .get(remote)
+      requestedUriConnections -= remote
 
       val connection = sender()
       val props = Props(classOf[PeerConnectionHandler], settings, self, peerManagerRef,
-        messageHandler, connection, externalSocketAddress, remote, initiator, authHandshaker)
+        messageHandler, connection, externalSocketAddress, remote, uriOpt, authHandshaker)
       val handler = context.actorOf(props)
       connection ! Register(handler, keepOpenOnPeerClosed = false, useResumeWriting = true)
       val newPeer = ConnectedPeer(remote, handler)
@@ -148,7 +148,7 @@ class NetworkController(settings: Settings,
 
     case CommandFailed(c: Connect) =>
       log.info("Failed to connect to : " + c.remoteAddress)
-      requestedConnections -= c.remoteAddress
+      requestedUriConnections -= c.remoteAddress
       peerManagerRef ! PeerManager.Disconnected(c.remoteAddress)
   }
 
@@ -184,7 +184,7 @@ object NetworkController {
 
   case object ShutdownNetwork
 
-  case class ConnectTo(address: InetSocketAddress)
+  case class ConnectTo(address: InetSocketAddress, uriOpt: Option[URI] = None)
 
   case class DataFromPeer[DT: TypeTag](spec: MessageSpec[DT], data: DT, source: ConnectedPeer)
 }

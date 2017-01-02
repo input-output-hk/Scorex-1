@@ -35,7 +35,7 @@ case class PeerConnectionHandler(
     connection: ActorRef,
     ownSocketAddress: Option[InetSocketAddress],
     remote: InetSocketAddress,
-    initiator: Boolean,
+    uriOpt: Option[URI],
     initialAuthHandshaker: AuthHandshaker)
   extends Actor with Buffering with ScorexLogging {
 
@@ -81,14 +81,14 @@ case class PeerConnectionHandler(
 
   private def authHandshake(handshaker: AuthHandshaker): Receive = {
     case StartInteraction =>
-      if (initiator) {
-        val (data, newHandshaker) = handshaker.initiate(???) // TODO: pass URI
+      uriOpt.foreach { uri =>
+        val (data, newHandshaker) = handshaker.initiate(uri)
         connection ! Write(data)
         context become authHandshake(newHandshaker)
       }
 
     case Received(data) =>
-      val result = if (initiator) {
+      val result = if (uriOpt.isDefined) {
         handshaker.handleResponseMessage(data)
       } else {
         val (msg, r) = handshaker.handleInitialMessage(data)
@@ -98,15 +98,14 @@ case class PeerConnectionHandler(
 
       result match {
         case AuthHandshakeSuccess(secrets) =>
-          log.info("Handshake success, secrets={}", secrets)
-          context.become(workingCycle) // workingCycle(secrets)
+          context.become(handshake(secrets))
         case AuthHandshakeError =>
-          log.error("Handshake error")
+          log.warn("Auth handshake error with {}", remote)
           context.stop(self)
       }
   }
 
-  private def handshake: Receive = ({
+  private def handshake(secrets: Secrets): Receive = ({
     case StartInteraction =>
       val hb = Handshake(
         settings.agentName,

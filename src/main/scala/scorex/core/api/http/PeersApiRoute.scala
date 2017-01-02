@@ -1,6 +1,6 @@
 package scorex.core.api.http
 
-import java.net.{InetAddress, InetSocketAddress}
+import java.net.{URI, InetAddress, InetSocketAddress}
 import javax.ws.rs.Path
 
 import akka.actor.{ActorRef, ActorRefFactory}
@@ -72,7 +72,7 @@ case class PeersApiRoute(peerManager: ActorRef,
     }
   }
 
-  private case class ConnectCommandParams(host: String, port: Int)
+  private case class ConnectCommandParams(uri: String)
 
   @Path("/connect")
   @ApiOperation(value = "Connect to peer", notes = "Connect to peer", httpMethod = "POST")
@@ -89,9 +89,10 @@ case class PeersApiRoute(peerManager: ActorRef,
       withAuth {
         postJsonRoute {
           decode[ConnectCommandParams](body) match {
-            case Right(ConnectCommandParams(host, port)) =>
-              val add: InetSocketAddress = new InetSocketAddress(InetAddress.getByName(host), port)
-              networkController ! ConnectTo(add)
+            case Right(ConnectCommandParams(uriStr)) =>
+              val uri = new URI(uriStr)
+              val add: InetSocketAddress = new InetSocketAddress(InetAddress.getByName(uri.getHost), uri.getPort)
+              networkController ! ConnectTo(add, Some(uri))
               Map("hostname" -> add.getHostName, "status" -> "Trying to connect").asJson
             case _ =>
               ApiError.wrongJson
